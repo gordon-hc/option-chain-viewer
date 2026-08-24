@@ -317,7 +317,14 @@ async function doQuery() {
       ALLMETA[s] = parsed.meta;
     }
     const syms = Object.keys(ALLDATA);
-    if (!syms.length) { setStatus('未取到数据', 'red'); tablePanel.innerHTML = '<div class="empty">未取到数据, 检查代码是否正确</div>'; return; }
+    if (!syms.length) {
+      const msg = (j.failed && j.failed.length)
+        ? '抓取失败: ' + j.failed.join(',') + '(请稍后重试)'
+        : '未取到数据, 检查代码是否正确';
+      setStatus(msg, 'red');
+      tablePanel.innerHTML = '<div class="empty">' + msg + '</div>';
+      return;
+    }
     rebuildSymSel();
     selectSymbol(syms[0]);
     setStatus('已加载 ' + syms.length + ' 个标的', 'green');
@@ -345,6 +352,32 @@ viewSel.addEventListener('change', refresh);
 </html>
 `;
 
+// 抓 CBOE 带重试(边缘节点偶发被限流), 成功后写入 Cache API 缓存 5 分钟
+async function fetchCboe(sym) {
+  const cache = caches.default;
+  const cacheUrl = 'https://cb-cache.local/' + sym;
+  const hit = await cache.match(cacheUrl);
+  if (hit) {
+    return await hit.json();
+  }
+  let doc = null;
+  for (let i = 0; i < 3; i++) {
+    try {
+      const r = await fetch(`https://cdn.cboe.com/api/global/delayed_quotes/options/${sym}.json`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; OptionChainViewer/1.0)' },
+      });
+      if (r.ok) { doc = await r.json(); break; }
+    } catch (e) {
+      /* 重试 */
+    }
+    if (i < 2) await new Promise(res => setTimeout(res, 400 * (i + 1)));
+  }
+  if (doc) {
+    await cache.put(cacheUrl, Response.json(doc), { headers: { 'Cache-Control': 's-maxage=300' } });
+  }
+  return doc;
+}
+
 export default {
   async fetch(request) {
     const url = new URL(request.url);
@@ -368,13 +401,10 @@ export default {
       const symbols = {};
       const failed = [];
       for (const sym of syms) {
-        try {
-          const r = await fetch(`https://cdn.cboe.com/api/global/delayed_quotes/options/${sym}.json`, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; OptionChainViewer/1.0)' },
-          });
-          if (!r.ok) { failed.push(sym); continue; }
-          symbols[sym] = await r.json();  // 原始 JSON 透传, 浏览器端解析
-        } catch (e) {
+        const doc = await fetchCboe(sym);
+        if (doc) {
+          symbols[sym] = doc;  // 原始 JSON 透传, 浏览器端解析
+        } else {
           failed.push(sym);
         }
       }

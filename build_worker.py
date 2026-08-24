@@ -12,6 +12,32 @@ WORKER = r'''// 期权链查询 - Cloudflare Worker(纯转发代理, 零解析)
 // 所有数据解析在浏览器端完成 -> CPU 占用极小, 免费层 10 万请求/天绰绰有余
 const HTML = `__HTML__`;
 
+// 抓 CBOE 带重试(边缘节点偶发被限流), 成功后写入 Cache API 缓存 5 分钟
+async function fetchCboe(sym) {
+  const cache = caches.default;
+  const cacheUrl = 'https://cb-cache.local/' + sym;
+  const hit = await cache.match(cacheUrl);
+  if (hit) {
+    return await hit.json();
+  }
+  let doc = null;
+  for (let i = 0; i < 3; i++) {
+    try {
+      const r = await fetch(`https://cdn.cboe.com/api/global/delayed_quotes/options/${sym}.json`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; OptionChainViewer/1.0)' },
+      });
+      if (r.ok) { doc = await r.json(); break; }
+    } catch (e) {
+      /* 重试 */
+    }
+    if (i < 2) await new Promise(res => setTimeout(res, 400 * (i + 1)));
+  }
+  if (doc) {
+    await cache.put(cacheUrl, Response.json(doc), { headers: { 'Cache-Control': 's-maxage=300' } });
+  }
+  return doc;
+}
+
 export default {
   async fetch(request) {
     const url = new URL(request.url);
@@ -35,13 +61,10 @@ export default {
       const symbols = {};
       const failed = [];
       for (const sym of syms) {
-        try {
-          const r = await fetch(`https://cdn.cboe.com/api/global/delayed_quotes/options/${sym}.json`, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; OptionChainViewer/1.0)' },
-          });
-          if (!r.ok) { failed.push(sym); continue; }
-          symbols[sym] = await r.json();  // 原始 JSON 透传, 浏览器端解析
-        } catch (e) {
+        const doc = await fetchCboe(sym);
+        if (doc) {
+          symbols[sym] = doc;  // 原始 JSON 透传, 浏览器端解析
+        } else {
           failed.push(sym);
         }
       }

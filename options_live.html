@@ -313,7 +313,14 @@ async function doQuery() {
       ALLMETA[s] = parsed.meta;
     }
     const syms = Object.keys(ALLDATA);
-    if (!syms.length) { setStatus('未取到数据', 'red'); tablePanel.innerHTML = '<div class="empty">未取到数据, 检查代码是否正确</div>'; return; }
+    if (!syms.length) {
+      const msg = (j.failed && j.failed.length)
+        ? '抓取失败: ' + j.failed.join(',') + '(请稍后重试)'
+        : '未取到数据, 检查代码是否正确';
+      setStatus(msg, 'red');
+      tablePanel.innerHTML = '<div class="empty">' + msg + '</div>';
+      return;
+    }
     rebuildSymSel();
     selectSymbol(syms[0]);
     setStatus('已加载 ' + syms.length + ' 个标的', 'green');

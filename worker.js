@@ -133,7 +133,12 @@ function renderTable(strike, view) {
   for (const exp of exps) {
     rows.push({ exp, c: quote(exp, 'C', strike), p: quote(exp, 'P', strike) });
   }
-  if (!rows.length) { tablePanel.innerHTML = '<div class="empty">无数据</div>'; chartEl.innerHTML = ''; return; }
+  if (!rows.length) {
+    const keys = Object.keys(ALLDATA[CUR] || {}).slice(0, 3).join(',');
+    tablePanel.innerHTML = '<div class="empty">诊断: 行权价[' + strike + '] 查无数据; 数据键示例: ' + (keys || '(空)') + '</div>';
+    chartEl.innerHTML = '';
+    return;
+  }
   const showC = view !== 'p', showP = view !== 'c';
   let html = '<table><thead><tr><th>到期日</th>';
   if (showC) html += '<th class="c">C bid</th><th class="c">C ask</th><th class="c">C mid</th><th>C IV</th><th>C Δ</th><th>C 价差</th>';
@@ -327,7 +332,8 @@ async function doQuery() {
     }
     rebuildSymSel();
     selectSymbol(syms[0]);
-    setStatus('已加载 ' + syms.length + ' 个标的', 'green');
+    const cnt = Object.keys(ALLDATA[syms[0]] || {}).length;
+    setStatus('已加载 ' + syms.length + ' 个标的 / ' + cnt + ' 个行权价', 'green');
     if (j.failed && j.failed.length) setStatus('部分失败: ' + j.failed.join(','), 'red');
   } catch (e) {
     setStatus('网络错误: ' + e, 'red');

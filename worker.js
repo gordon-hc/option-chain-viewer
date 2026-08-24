@@ -316,7 +316,9 @@ async function doQuery() {
     if (!j.ok) { setStatus('失败: ' + j.error, 'red'); return; }
     ALLDATA = {};
     ALLMETA = {};
+    let rawCount = 0;
     for (const [s, doc] of Object.entries(j.symbols || {})) {
+      rawCount = (doc && doc.data && doc.data.options || []).length;
       const parsed = parseSymbolDoc(doc);
       ALLDATA[s] = parsed.data;
       ALLMETA[s] = parsed.meta;
@@ -333,7 +335,7 @@ async function doQuery() {
     rebuildSymSel();
     selectSymbol(syms[0]);
     const cnt = Object.keys(ALLDATA[syms[0]] || {}).length;
-    setStatus('已加载 ' + syms.length + ' 个标的 / ' + cnt + ' 个行权价', 'green');
+    setStatus('已加载 ' + syms.length + ' 标的 / ' + cnt + ' 行权价 / 原始 ' + rawCount + ' 条', 'green');
     if (j.failed && j.failed.length) setStatus('部分失败: ' + j.failed.join(','), 'red');
   } catch (e) {
     setStatus('网络错误: ' + e, 'red');

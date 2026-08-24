@@ -235,9 +235,13 @@ function parseSymbolDoc(doc) {
   const options = (doc.data && doc.data.options) || [];
   const timestamp = doc.timestamp || '';
   const data = {};
+  let matched = 0;
+  let firstOption = '(无数据)';
   for (const o of options) {
+    if (matched === 0 && firstOption === '(无数据)') firstOption = String(o.option || '(空)');
     const m = /^([A-Z]+)(\d{6})([CP])(\d{8})$/.exec(o.option || '');
     if (!m) continue;
+    matched++;
     const exp = '20' + m[2].slice(0, 2) + '-' + m[2].slice(2, 4) + '-' + m[2].slice(4, 6);
     const right = m[3];
     const strike = Number(m[4]) / 1000;
@@ -301,7 +305,7 @@ function parseSymbolDoc(doc) {
     }
   }
   const quotes = Object.values(data).reduce((s, a) => s + a.length, 0);
-  return { data, meta: { timestamp, spot, quotes, cached: false } };
+  return { data, meta: { timestamp, spot, quotes, cached: false }, debug: { matched, firstOption } };
 }
 
 async function doQuery() {
@@ -317,11 +321,13 @@ async function doQuery() {
     ALLDATA = {};
     ALLMETA = {};
     let rawCount = 0;
+    let lastDebug = null;
     for (const [s, doc] of Object.entries(j.symbols || {})) {
       rawCount = (doc && doc.data && doc.data.options || []).length;
       const parsed = parseSymbolDoc(doc);
       ALLDATA[s] = parsed.data;
       ALLMETA[s] = parsed.meta;
+      lastDebug = parsed.debug;
     }
     const syms = Object.keys(ALLDATA);
     if (!syms.length) {
@@ -335,7 +341,8 @@ async function doQuery() {
     rebuildSymSel();
     selectSymbol(syms[0]);
     const cnt = Object.keys(ALLDATA[syms[0]] || {}).length;
-    setStatus('已加载 ' + syms.length + ' 标的 / ' + cnt + ' 行权价 / 原始 ' + rawCount + ' 条', 'green');
+    const dbg = lastDebug || {};
+    setStatus('已加载 ' + syms.length + ' 标的 / ' + cnt + ' 行权价 / 原始 ' + rawCount + ' 条 / 匹配 ' + (dbg.matched !== undefined ? dbg.matched : '?') + ' / 首条 ' + (dbg.firstOption || '?'), 'green');
     if (j.failed && j.failed.length) setStatus('部分失败: ' + j.failed.join(','), 'red');
   } catch (e) {
     setStatus('网络错误: ' + e, 'red');

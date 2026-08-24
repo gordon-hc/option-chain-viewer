@@ -10,6 +10,16 @@
 
 单文件 `worker.js` 部署到 Cloudflare Workers(免费层 10 万请求/天,长期免费):
 
+### 方式一:一键部署(最简单,推荐)
+
+点下面按钮 → 授权 GitHub → 自动部署,约 1 分钟完成:
+
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/gordon-hc/option-chain-viewer)
+
+部署完成后得到网址 `https://option-chain-viewer.<你的子域>.workers.dev`,手机浏览器打开即可。
+
+### 方式二:手动部署
+
 1. 注册 https://dash.cloudflare.com
 2. Workers & Pages → Create Worker → 任意命名 → Deploy
 3. Edit code → 粘贴 `worker.js` 全部内容 → Deploy

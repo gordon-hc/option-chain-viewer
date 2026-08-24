@@ -332,6 +332,11 @@ async function doQuery() {
 
 goBtn.addEventListener('click', doQuery);
 symInput.addEventListener('keydown', e => { if (e.key === 'Enter') doQuery(); });
+let autoTimer = null;
+symInput.addEventListener('input', () => {
+  clearTimeout(autoTimer);
+  autoTimer = setTimeout(doQuery, 1500);  // 停止输入 1.5 秒后自动查询
+});
 symSel.addEventListener('change', () => selectSymbol(symSel.value));
 strikeSel.addEventListener('change', refresh);
 viewSel.addEventListener('change', refresh);

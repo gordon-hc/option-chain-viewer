@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>期权链查询</title>
+<style>
+  :root { --c-call: #0a7d3c; --c-put: #b3261e; --bg: #f6f7f9; --card: #fff; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--bg); color: #1c2430; padding: 12px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; background: var(--card); border-radius: 10px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  header h1 { font-size: 17px; margin-right: 4px; }
+  input[type=text] { font-size: 15px; padding: 8px 12px; border: 1px solid #cfd4dc; border-radius: 8px; background: #fff; min-width: 130px; flex: 1 1 150px; text-transform: uppercase; }
+  button { font-size: 15px; padding: 8px 16px; border: none; border-radius: 8px; background: #0a7d3c; color: #fff; cursor: pointer; }
+  button:active { opacity: .8; }
+  .chip { font-size: 12px; color: #5b6472; background: #eef0f3; border-radius: 12px; padding: 3px 10px; }
+  .chip.green { background: #e8f5e9; color: #0a7d3c; }
+  .chip.red { background: #fdecea; color: #b3261e; }
+  label { font-size: 13px; color: #5b6472; }
+  select { font-size: 14px; padding: 6px 10px; border: 1px solid #cfd4dc; border-radius: 8px; background: #fff; min-width: 110px; }
+  .hint { font-size: 12px; color: #8a93a1; margin-top: 4px; }
+  .wrap { display: flex; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+  .panel { background: var(--card); border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08); padding: 10px; }
+  #chartPanel { flex: 1 1 480px; min-width: 300px; }
+  #tablePanel { flex: 2 1 560px; min-width: 300px; max-height: 70vh; overflow: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th, td { padding: 5px 7px; text-align: right; border-bottom: 1px solid #eceff3; white-space: nowrap; }
+  th { position: sticky; top: 0; background: #f2f4f7; color: #46505e; font-weight: 600; z-index: 2; }
+  td.exp, td.flag { text-align: left; }
+  .c { color: var(--c-call); } .p { color: var(--c-put); }
+  .wide td { background: #fff7d6; } .narrow td { background: #e3f0fd; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: #5b6472; margin: 6px 0; flex-wrap: wrap; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; }
+  .sub { font-size: 12px; color: #8a93a1; }
+  .empty { color: #8a93a1; font-size: 14px; text-align: center; padding: 40px 0; }
+  @media (max-width: 700px) {
+    body { padding: 8px; }
+    header h1 { display: none; }
+    #chartPanel, #tablePanel { flex: 1 1 100%; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>期权链查询</h1>
+  <input type="text" id="symInput" placeholder="输入代码, 如 BABA" autocomplete="off">
+  <button id="goBtn">查询</button>
+  <label>标的
+    <select id="symSel"></select>
+  </label>
+  <label>行权价
+    <select id="strikeSel"></select>
+  </label>
+  <label>视图
+    <select id="viewSel">
+      <option value="both">Call + Put</option>
+      <option value="c">仅 Call</option>
+      <option value="p">仅 Put</option>
+    </select>
+  </label>
+  <span class="chip" id="status"></span>
+  <span class="chip" id="ts"></span>
+  <span class="chip" id="spot"></span>
+</header>
+<div class="hint">支持多代码, 逗号分隔, 如 BABA,AAPL。数据为 CBOE 延迟行情(收盘后即收盘价), 抓取后缓存 5 分钟。</div>
+<div class="wrap">
+  <div class="panel" id="chartPanel">
+    <div class="legend">
+      <span><span class="dot" style="background:var(--c-call)"></span>Call mid</span>
+      <span><span class="dot" style="background:var(--c-put)"></span>Put mid</span>
+    </div>
+    <svg id="chart" width="100%" viewBox="0 0 820 300" preserveAspectRatio="xMidYMid meet"></svg>
+  </div>
+  <div class="panel" id="tablePanel"><div class="empty">输入代码点「查询」开始</div></div>
+</div>
+<script>
+const symSel = document.getElementById('symSel');
+const viewSel = document.getElementById('viewSel');
+const strikeSel = document.getElementById('strikeSel');
+const tablePanel = document.getElementById('tablePanel');
+const chartEl = document.getElementById('chart');
+const statusEl = document.getElementById('status');
+const tsEl = document.getElementById('ts');
+const spotEl = document.getElementById('spot');
+const symInput = document.getElementById('symInput');
+const goBtn = document.getElementById('goBtn');
+
+let ALLDATA = {};
+let ALLMETA = {};
+let CUR = null;
+let busy = false;
+
+function setStatus(text, cls) {
+  statusEl.textContent = text;
+  statusEl.className = 'chip ' + (cls || '');
+}
+
+function rebuildSymSel() {
+  const cur = symSel.value;
+  symSel.innerHTML = '';
+  Object.keys(ALLDATA).sort().forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s;
+    opt.textContent = s;
+    symSel.appendChild(opt);
+  });
+  if (cur && ALLDATA[cur]) symSel.value = cur;
+}
+
+function strikesOf() {
+  return Object.keys(ALLDATA[CUR]).sort((a,b)=>Number(a)-Number(b));
+}
+
+function quote(exp, right, strike) {
+  const arr = ALLDATA[CUR][strike] || [];
+  for (const q of arr) if (q[0] === exp && q[1] === right) return q;
+  return null;
+}
+
+function allExpirations(strike) {
+  const set = new Set();
+  (ALLDATA[CUR][strike] || []).forEach(q => set.add(q[0]));
+  return Array.from(set).sort();
+}
+
+function renderTable(strike, view) {
+  const exps = allExpirations(strike);
+  const rows = [];
+  for (const exp of exps) {
+    rows.push({ exp, c: quote(exp, 'C', strike), p: quote(exp, 'P', strike) });
+  }
+  if (!rows.length) { tablePanel.innerHTML = '<div class="empty">无数据</div>'; chartEl.innerHTML = ''; return; }
+  const showC = view !== 'p', showP = view !== 'c';
+  let html = '<table><thead><tr><th>到期日</th>';
+  if (showC) html += '<th class="c">C bid</th><th class="c">C ask</th><th class="c">C mid</th><th>C IV</th><th>C Δ</th><th>C 价差</th>';
+  if (showP) html += '<th class="p">P bid</th><th class="p">P ask</th><th class="p">P mid</th><th>P IV</th><th>P Δ</th><th>P 价差</th>';
+  html += '<th>标记</th></tr></thead><tbody>';
+  let hasC = false, hasP = false;
+  for (const r of rows) {
+    const cls = (r.c && r.c[14] === 'WIDE') || (r.p && r.p[14] === 'WIDE') ? ' class="wide"' : ((r.c && r.c[14]==='NARROW') || (r.p && r.p[14]==='NARROW') ? ' class="narrow"' : '');
+    html += '<tr' + cls + '><td class="exp">' + r.exp + '</td>';
+    const flag = [];
+    if (r.c && r.c[14]) flag.push(r.c[14]); if (r.p && r.p[14]) flag.push(r.p[14]);
+    if (showC) {
+      if (r.c) { hasC = true; html += '<td>' + f(r.c[2]) + '</td><td>' + f(r.c[3]) + '</td><td class="c">' + f(r.c[4]) + '</td><td>' + f(r.c[5]) + '</td><td>' + f(r.c[6]) + '</td><td>' + f(r.c[7]) + '</td>'; }
+      else html += '<td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td>';
+    }
+    if (showP) {
+      if (r.p) { hasP = true; html += '<td>' + f(r.p[2]) + '</td><td>' + f(r.p[3]) + '</td><td class="p">' + f(r.p[4]) + '</td><td>' + f(r.p[5]) + '</td><td>' + f(r.p[6]) + '</td><td>' + f(r.p[7]) + '</td>'; }
+      else html += '<td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td>';
+    }
+    html += '<td class="flag">' + flag.join('/') + '</td></tr>';
+  }
+  html += '</tbody></table>';
+  tablePanel.innerHTML = html;
+  drawChart(rows, showC && hasC, showP && hasP);
+}
+
+function f(x) { return (x === null || x === undefined || x < 0) ? '-' : x; }
+
+function drawChart(rows, showC, showP) {
+  const W = 820, H = 300, mL = 52, mR = 16, mT = 14, mB = 46;
+  const vals = [];
+  rows.forEach(r => { if (showC && r.c && r.c[4] > 0) vals.push(r.c[4]); if (showP && r.p && r.p[4] > 0) vals.push(r.p[4]); });
+  if (!vals.length) { chartEl.innerHTML = '<text x="410" y="150" text-anchor="middle" fill="#8a93a1" font-size="13">该行权价下无有效报价</text>'; return; }
+  let yMax = Math.max(...vals) * 1.12, yMin = Math.min(...vals) * 0.88;
+  if (yMax - yMin < 0.02) { yMax += 0.02; yMin = Math.max(0, yMin - 0.02); }
+  const y = v => mT + (H - mT - mB) * (1 - (v - yMin) / (yMax - yMin));
+  const x = i => rows.length <= 1 ? W/2 : mL + (W - mL - mR) * i / (rows.length - 1);
+  let svg = '';
+  for (let g = 0; g <= 4; g++) {
+    const v = yMin + (yMax - yMin) * g / 4, yy = y(v);
+    svg += '<line x1="' + mL + '" y1="' + yy + '" x2="' + (W - mR) + '" y2="' + yy + '" stroke="#e6e9ee" stroke-width="1"/>';
+    svg += '<text x="' + (mL - 6) + '" y="' + (yy + 4) + '" text-anchor="end" font-size="10" fill="#8a93a1">' + v.toFixed(2) + '</text>';
+  }
+  function line(get, color) {
+    const pts = [];
+    rows.forEach((r, i) => { const v = get(r); if (v !== null && v > 0) pts.push([x(i), y(v)]); });
+    if (pts.length < 2) return '';
+    let d = '';
+    pts.forEach((p, i) => d += (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1));
+    let s = '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="2"/>';
+    pts.forEach(p => { s += '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="3" fill="' + color + '"/>'; });
+    return s;
+  }
+  if (showC) svg += line(r => r.c ? r.c[4] : null, '#0a7d3c');
+  if (showP) svg += line(r => r.p ? r.p[4] : null, '#b3261e');
+  rows.forEach((r, i) => {
+    if (rows.length > 12 && i % Math.ceil(rows.length/12) !== 0 && i !== rows.length-1) return;
+    svg += '<text x="' + x(i) + '" y="' + (H - mB + 14) + '" text-anchor="middle" font-size="10" fill="#5b6472" transform="rotate(-40 ' + x(i) + ' ' + (H - mB + 14) + ')">' + r.exp.slice(5) + '</text>';
+  });
+  svg += '<text x="' + (W/2) + '" y="' + (H - 4) + '" text-anchor="middle" font-size="11" fill="#46505e">到期日</text>';
+  chartEl.innerHTML = svg;
+}
+
+function selectSymbol(sym) {
+  CUR = sym;
+  const meta = ALLMETA[sym] || {};
+  tsEl.textContent = '数据时间: ' + (meta.timestamp || '-') + (meta.cached ? '(缓存)' : '');
+  spotEl.textContent = '参考现价: ' + meta.spot;
+  strikeSel.innerHTML = '';
+  strikesOf().forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s;
+    opt.textContent = Number(s).toFixed(2);
+    strikeSel.appendChild(opt);
+  });
+  let best = null, bd = Infinity;
+  strikesOf().forEach(s => { const d = Math.abs(Number(s) - meta.spot); if (d < bd) { bd = d; best = s; } });
+  strikeSel.value = best;
+  refresh();
+}
+
+function refresh() {
+  if (!CUR) return;
+  renderTable(strikeSel.value, viewSel.value);
+}
+
+function fmtRaw(x) {
+  const v = Number(x);
+  return Number.isFinite(v) ? v : -1;
+}
+
+// 解析 CBOE 原始 JSON(与 Python 版 process_symbol 逻辑一致)
+function parseSymbolDoc(doc) {
+  const options = (doc.data && doc.data.options) || [];
+  const timestamp = doc.timestamp || '';
+  const data = {};
+  for (const o of options) {
+    const m = /^([A-Z]+)(\d{6})([CP])(\d{8})$/.exec(o.option || '');
+    if (!m) continue;
+    const exp = '20' + m[2].slice(0, 2) + '-' + m[2].slice(2, 4) + '-' + m[2].slice(4, 6);
+    const right = m[3];
+    const strike = Number(m[4]) / 1000;
+    let bid = fmtRaw(o.bid), ask = fmtRaw(o.ask);
+    if (!(bid > 0 && ask > 0 && ask >= bid)) { bid = -1; ask = -1; }
+    const spread = bid > 0 ? +(ask - bid).toFixed(4) : -1;
+    const mid = spread > 0 ? +((bid + ask) / 2).toFixed(4) : -1;
+    let key = String(+strike.toFixed(3));
+    if (!key.includes('.')) key += '.0';
+    const arr = data[key] || (data[key] = []);
+    arr.push([
+      exp, right, +bid.toFixed(4), +ask.toFixed(4), mid,
+      +fmtRaw(o.iv).toFixed(4), +fmtRaw(o.delta).toFixed(4), spread,
+      Math.trunc(fmtRaw(o.open_interest)), Math.trunc(fmtRaw(o.volume)),
+      +fmtRaw(o.gamma).toFixed(4), +fmtRaw(o.vega).toFixed(4),
+      +fmtRaw(o.theta).toFixed(4), +fmtRaw(o.rho).toFixed(4), '',
+    ]);
+  }
+  // 价差异常检测
+  const groups = {};
+  for (const [strike, arr] of Object.entries(data)) {
+    for (const q of arr) {
+      const k = q[0] + '|' + q[1];
+      (groups[k] = groups[k] || []).push([strike, q]);
+    }
+  }
+  for (const g of Object.values(groups)) {
+    g.sort((a, b) => a[0] - b[0]);
+    const spreads = g.map(x => x[1][7]);
+    const n = g.length;
+    for (let i = 0; i < n; i++) {
+      const q = g[i][1];
+      const lo = Math.max(0, i - 2), hi = Math.min(n, i + 3);
+      const neigh = [];
+      for (let j = lo; j < hi; j++) if (j !== i && spreads[j] > 0) neigh.push(spreads[j]);
+      if (q[7] > 0.10 && neigh.length) {
+        neigh.sort((a, b) => a - b);
+        const med = neigh[Math.floor(neigh.length / 2)];
+        if (med > 0.02) {
+          const ratio = q[7] / med;
+          if (ratio >= 3) q[14] = 'WIDE';
+          else if (ratio <= 0.34) q[14] = 'NARROW';
+        }
+      }
+    }
+  }
+  // put-call parity 粗估现价(最近到期日)
+  const exps = [...new Set(Object.values(data).flat().map(q => q[0]))].sort();
+  let spot = -1;
+  if (exps.length) {
+    const nearest = exps[0];
+    const est = [];
+    for (const [strike, arr] of Object.entries(data)) {
+      const c = arr.find(q => q[0] === nearest && q[1] === 'C');
+      const p = arr.find(q => q[0] === nearest && q[1] === 'P');
+      if (c && p && c[4] > 0 && p[4] > 0) est.push(c[4] - p[4] + Number(strike));
+    }
+    if (est.length) {
+      est.sort((a, b) => a - b);
+      spot = +est[Math.floor(est.length / 2)].toFixed(2);
+    }
+  }
+  const quotes = Object.values(data).reduce((s, a) => s + a.length, 0);
+  return { data, meta: { timestamp, spot, quotes, cached: false } };
+}
+
+async function doQuery() {
+  const raw = symInput.value.trim().toUpperCase();
+  if (!raw || busy) return;
+  busy = true;
+  goBtn.disabled = true;
+  setStatus('抓取中...');
+  try {
+    const r = await fetch('/api/quote?symbol=' + encodeURIComponent(raw));
+    const j = await r.json();
+    if (!j.ok) { setStatus('失败: ' + j.error, 'red'); return; }
+    ALLDATA = {};
+    ALLMETA = {};
+    for (const [s, doc] of Object.entries(j.symbols || {})) {
+      const parsed = parseSymbolDoc(doc);
+      ALLDATA[s] = parsed.data;
+      ALLMETA[s] = parsed.meta;
+    }
+    const syms = Object.keys(ALLDATA);
+    if (!syms.length) { setStatus('未取到数据', 'red'); tablePanel.innerHTML = '<div class="empty">未取到数据, 检查代码是否正确</div>'; return; }
+    rebuildSymSel();
+    selectSymbol(syms[0]);
+    setStatus('已加载 ' + syms.length + ' 个标的', 'green');
+    if (j.failed && j.failed.length) setStatus('部分失败: ' + j.failed.join(','), 'red');
+  } catch (e) {
+    setStatus('网络错误: ' + e, 'red');
+  } finally {
+    busy = false;
+    goBtn.disabled = false;
+  }
+}
+
+goBtn.addEventListener('click', doQuery);
+symInput.addEventListener('keydown', e => { if (e.key === 'Enter') doQuery(); });
+symSel.addEventListener('change', () => selectSymbol(symSel.value));
+strikeSel.addEventListener('change', refresh);
+viewSel.addEventListener('change', refresh);
+</script>
+</body>
+</html>

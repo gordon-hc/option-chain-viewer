@@ -1,0 +1,29 @@
+# 大文件/安装包(不入库)
+ibgateway/
+ibgateway-linux.sh
+ibgateway-linux.sh.*
+jdk-*/
+zulu*/
+jre*/
+*.tar.gz
+*.dmg
+payload.zip
+*.csv
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# 一次性诊断脚本
+diagnose_qualify.py
+test_port.py
+qualify_bench.py
+inspect_sessions.py
+extract_last_patch.py
+extract_payload.py
+analyze_payload.py
+
+# macOS
+.DS_Store
+options_query.html

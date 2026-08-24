@@ -10,20 +10,17 @@
 
 单文件 `worker.js` 部署到 Cloudflare Workers(免费层 10 万请求/天,长期免费):
 
-### 方式一:一键部署(最简单,推荐)
-
-点下面按钮 → 授权 GitHub → 自动部署,约 1 分钟完成:
-
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/gordon-hc/option-chain-viewer)
-
-部署完成后得到网址 `https://option-chain-viewer.<你的子域>.workers.dev`,手机浏览器打开即可。
-
-### 方式二:手动部署
+### 方式一:手动部署(推荐,最稳)
 
 1. 注册 https://dash.cloudflare.com
-2. Workers & Pages → Create Worker → 任意命名 → Deploy
-3. Edit code → 粘贴 `worker.js` 全部内容 → Deploy
-4. 手机浏览器打开 `https://<你的worker>.workers.dev/` → 输入代码 → 查询
+2. 浏览器直接打开 https://dash.cloudflare.com/workers
+3. Create Worker → 任意命名(如 `gordon-oc-viewer`)→ Deploy
+4. Edit code → 全选删除 → 粘贴 `worker.js` 全部内容 → Deploy
+5. 手机浏览器打开 `https://<你的worker名>.<你的子域>.workers.dev/` → 输入代码 → 查询
+
+### 方式二:Git 自动同步(进阶)
+
+Workers & Pages → Create → Connect to Git → 授权 GitHub → **选择现有仓库** `gordon-hc/option-chain-viewer`(不要勾选"创建专用 Git 存储库")→ 项目名填 `gordon-oc-viewer` → 部署。以后 `git push` 自动更新。
 
 ## 本地版(电脑上跑)
 

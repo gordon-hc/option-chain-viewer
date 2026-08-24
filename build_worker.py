@@ -54,7 +54,7 @@ export default {
     }
     if (url.pathname === '/' || url.pathname === '/index.html') {
       return new Response(HTML, {
-        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache', ...cors },
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store, max-age=0', ...cors },
       });
     }
     return Response.json({ ok: false, error: 'not found' }, { status: 404, headers: cors });
